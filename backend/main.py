@@ -20,6 +20,7 @@ class AppState:
     websocket_clients: list[WebSocket] = []
     current_config: Optional[BotConfig] = None
     crm_api_key: Optional[str] = None
+    main_loop: Optional[asyncio.AbstractEventLoop] = None
 
 
 state = AppState()
@@ -29,6 +30,8 @@ state = AppState()
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
     print("[*] LinkedIn Sales Robot starting...")
+    # Capture the main event loop
+    state.main_loop = asyncio.get_running_loop()
     yield
     # Cleanup
     if state.bot:
@@ -66,8 +69,12 @@ async def broadcast_status(status: BotStatus):
 
 
 def status_callback(status: BotStatus):
-    """Callback for bot status updates"""
-    asyncio.create_task(broadcast_status(status))
+    """Callback for bot status updates (thread-safe)"""
+    if state.main_loop and state.main_loop.is_running():
+        # Schedule the async broadcast on the main event loop from any thread
+        state.main_loop.call_soon_threadsafe(
+            lambda: state.main_loop.create_task(broadcast_status(status))
+        )
 
 
 @app.get("/")
@@ -156,8 +163,18 @@ async def start_bot(request: StartBotRequest):
         status_callback=status_callback
     )
     
+    async def run_bot_with_error_handling():
+        """Wrapper to handle bot exceptions"""
+        try:
+            await state.bot.run()
+        except Exception as e:
+            import traceback
+            error_msg = f"Bot crashed: {str(e)}\n{traceback.format_exc()}"
+            print(error_msg)
+            state.bot._log(f"[ERR] {str(e)}")
+    
     # Run bot in background
-    state.bot_task = asyncio.create_task(state.bot.run())
+    state.bot_task = asyncio.create_task(run_bot_with_error_handling())
     
     return {"status": "started", "message": "Bot started successfully"}
 

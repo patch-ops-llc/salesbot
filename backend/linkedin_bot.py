@@ -1,8 +1,13 @@
 import asyncio
+import time
 import re
+import traceback
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import AsyncGenerator, Callable, Optional, List
-from playwright.async_api import async_playwright, Browser, Page, BrowserContext
+from pathlib import Path
+from threading import Event
+from typing import Callable, Optional, List
+from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext, Playwright
 
 from .models import (
     BotConfig, BotStatus, Executive, ConnectionRequest,
@@ -10,9 +15,15 @@ from .models import (
 )
 from .crm_client import CRMClient
 
+# Get absolute path for browser data
+BROWSER_DATA_DIR = Path(__file__).parent.parent / "browser_data"
+
+# Thread pool for running sync playwright
+_executor = ThreadPoolExecutor(max_workers=1)
+
 
 class LinkedInBot:
-    """LinkedIn automation bot using Playwright"""
+    """LinkedIn automation bot using Playwright (sync API for Windows compatibility)"""
     
     def __init__(
         self,
@@ -22,12 +33,13 @@ class LinkedInBot:
     ):
         self.config = config
         self.crm_client = crm_client
-        self.status_callback = status_callback
+        self._status_callback = status_callback
         self.status = BotStatus()
-        self.browser: Optional[Browser] = None
+        self.playwright: Optional[Playwright] = None
         self.context: Optional[BrowserContext] = None
         self.page: Optional[Page] = None
-        self._stop_requested = False
+        self._stop_event = Event()
+        self._loop = None  # Store the asyncio event loop for callbacks
     
     def _log(self, message: str):
         """Add a log message and notify callback"""
@@ -40,9 +52,30 @@ class LinkedInBot:
         self._notify_status()
     
     def _notify_status(self):
-        """Notify the callback of status change"""
-        if self.status_callback:
-            self.status_callback(self.status)
+        """Notify the callback of status change (thread-safe)"""
+        if self._status_callback:
+            if self._loop and self._loop.is_running():
+                # Schedule the callback on the main event loop from any thread
+                try:
+                    self._loop.call_soon_threadsafe(self._do_notify)
+                except Exception as e:
+                    print(f"Notify error: {e}")
+            else:
+                # Fallback: try to call directly (may work if in same thread)
+                try:
+                    self._status_callback(self.status)
+                except Exception:
+                    pass  # Ignore if we can't notify yet
+    
+    def _do_notify(self):
+        """Execute the notification on the event loop"""
+        if self._status_callback:
+            asyncio.ensure_future(self._async_broadcast())
+    
+    async def _async_broadcast(self):
+        """Async wrapper for status notification"""
+        if self._status_callback:
+            self._status_callback(self.status)
     
     def _update_status(self, action: str, **kwargs):
         """Update bot status"""
@@ -52,17 +85,22 @@ class LinkedInBot:
                 setattr(self.status, key, value)
         self._notify_status()
     
-    async def start_browser(self, headless: bool = False):
-        """Start the browser with persistent context for LinkedIn login"""
+    def _start_browser(self, headless: bool = False):
+        """Start the browser with persistent context for LinkedIn login (sync)"""
         self._log("Starting browser...")
         self.status.is_running = True
         self._update_status("Starting browser")
         
-        playwright = await async_playwright().start()
+        # Ensure browser data directory exists
+        BROWSER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+        browser_data_path = str(BROWSER_DATA_DIR.absolute())
+        self._log(f"Browser data path: {browser_data_path}")
+        
+        self.playwright = sync_playwright().start()
         
         # Use persistent context to maintain LinkedIn session
-        self.context = await playwright.chromium.launch_persistent_context(
-            user_data_dir="./browser_data",
+        self.context = self.playwright.chromium.launch_persistent_context(
+            user_data_dir=browser_data_path,
             headless=headless,
             viewport={"width": 1280, "height": 800},
             args=[
@@ -71,10 +109,14 @@ class LinkedInBot:
             ]
         )
         
-        self.page = await self.context.new_page()
+        # Get the first page or create a new one
+        if self.context.pages:
+            self.page = self.context.pages[0]
+        else:
+            self.page = self.context.new_page()
         
         # Add stealth measures
-        await self.page.add_init_script("""
+        self.page.add_init_script("""
             Object.defineProperty(navigator, 'webdriver', {
                 get: () => undefined
             });
@@ -82,12 +124,12 @@ class LinkedInBot:
         
         self._log("Browser started successfully")
     
-    async def check_login(self) -> bool:
-        """Check if user is logged into LinkedIn"""
+    def _check_login(self) -> bool:
+        """Check if user is logged into LinkedIn (sync)"""
         self._update_status("Checking LinkedIn login status")
         
-        await self.page.goto("https://www.linkedin.com/feed/", wait_until="networkidle")
-        await asyncio.sleep(2)
+        self.page.goto("https://www.linkedin.com/feed/", wait_until="networkidle")
+        time.sleep(2)
         
         # Check if we're on the login page or feed
         current_url = self.page.url
@@ -98,14 +140,17 @@ class LinkedInBot:
         self._log("[OK] LinkedIn login confirmed")
         return True
     
-    async def search_jobs(self) -> List[dict]:
-        """Search for jobs matching the criteria"""
+    def _search_jobs(self) -> List[dict]:
+        """Search for jobs matching the criteria (sync)"""
         self._update_status("Searching for job postings")
         jobs = []
         
         search_config = self.config.search_config
         
         for job_title in search_config.job_titles:
+            if self._stop_event.is_set():
+                break
+                
             self._log(f"Searching for: {job_title}")
             
             # Build LinkedIn jobs search URL
@@ -118,25 +163,25 @@ class LinkedInBot:
             elif search_config.posted_within_days <= 30:
                 search_url += "&f_TPR=r2592000"  # Past month
             
-            await self.page.goto(search_url, wait_until="networkidle")
-            await asyncio.sleep(3)
+            self.page.goto(search_url, wait_until="networkidle")
+            time.sleep(3)
             
             # Extract job listings
-            job_cards = await self.page.query_selector_all(".job-card-container")
+            job_cards = self.page.query_selector_all(".job-card-container")
             
             for card in job_cards[:10]:  # Limit to first 10 per search
-                if self._stop_requested:
+                if self._stop_event.is_set():
                     break
                     
                 try:
-                    title_elem = await card.query_selector(".job-card-list__title")
-                    company_elem = await card.query_selector(".job-card-container__primary-description")
-                    link_elem = await card.query_selector("a.job-card-container__link")
+                    title_elem = card.query_selector(".job-card-list__title")
+                    company_elem = card.query_selector(".job-card-container__primary-description")
+                    link_elem = card.query_selector("a.job-card-container__link")
                     
                     if title_elem and company_elem and link_elem:
-                        title = await title_elem.inner_text()
-                        company = await company_elem.inner_text()
-                        link = await link_elem.get_attribute("href")
+                        title = title_elem.inner_text()
+                        company = company_elem.inner_text()
+                        link = link_elem.get_attribute("href")
                         
                         jobs.append({
                             "title": title.strip(),
@@ -147,13 +192,13 @@ class LinkedInBot:
                 except Exception as e:
                     self._log(f"Error extracting job: {str(e)}")
             
-            await asyncio.sleep(2)  # Rate limiting
+            time.sleep(2)  # Rate limiting
         
         self._log(f"Found {len(jobs)} job postings")
         return jobs
     
-    async def find_company_executives(self, company_name: str, job_title: str) -> List[Executive]:
-        """Find executives at a company"""
+    def _find_company_executives(self, company_name: str, job_title: str) -> List[Executive]:
+        """Find executives at a company (sync)"""
         self._update_status(f"Finding executives at {company_name}")
         executives = []
         
@@ -163,25 +208,25 @@ class LinkedInBot:
         search_query = f"{company_name}"
         search_url = f"https://www.linkedin.com/search/results/people/?keywords={search_query.replace(' ', '%20')}&origin=GLOBAL_SEARCH_HEADER"
         
-        await self.page.goto(search_url, wait_until="networkidle")
-        await asyncio.sleep(3)
+        self.page.goto(search_url, wait_until="networkidle")
+        time.sleep(3)
         
         # Get people results
-        person_cards = await self.page.query_selector_all(".entity-result")
+        person_cards = self.page.query_selector_all(".entity-result")
         
         for card in person_cards[:5]:  # Limit to first 5
-            if self._stop_requested:
+            if self._stop_event.is_set():
                 break
                 
             try:
-                name_elem = await card.query_selector(".entity-result__title-text a span[aria-hidden='true']")
-                title_elem = await card.query_selector(".entity-result__primary-subtitle")
-                link_elem = await card.query_selector(".entity-result__title-text a")
+                name_elem = card.query_selector(".entity-result__title-text a span[aria-hidden='true']")
+                title_elem = card.query_selector(".entity-result__primary-subtitle")
+                link_elem = card.query_selector(".entity-result__title-text a")
                 
                 if name_elem and title_elem and link_elem:
-                    name = await name_elem.inner_text()
-                    title = await title_elem.inner_text()
-                    link = await link_elem.get_attribute("href")
+                    name = name_elem.inner_text()
+                    title = title_elem.inner_text()
+                    link = link_elem.get_attribute("href")
                     
                     # Check if this is an executive
                     is_executive = any(
@@ -205,7 +250,7 @@ class LinkedInBot:
         
         return executives
     
-    def generate_custom_message(self, executive: Executive) -> str:
+    def _generate_custom_message(self, executive: Executive) -> str:
         """Generate a customized connection message"""
         template = self.config.message_template.template
         
@@ -221,11 +266,11 @@ class LinkedInBot:
         
         return message
     
-    async def send_connection_request(self, executive: Executive) -> ConnectionRequest:
-        """Send a connection request to an executive"""
+    def _send_connection_request(self, executive: Executive) -> ConnectionRequest:
+        """Send a connection request to an executive (sync)"""
         self._update_status(f"Sending connection to {executive.name}", current_executive=executive)
         
-        custom_message = self.generate_custom_message(executive)
+        custom_message = self._generate_custom_message(executive)
         request = ConnectionRequest(
             executive=executive,
             custom_message=custom_message
@@ -233,41 +278,41 @@ class LinkedInBot:
         
         try:
             # Navigate to the person's profile
-            await self.page.goto(executive.linkedin_url, wait_until="networkidle")
-            await asyncio.sleep(2)
+            self.page.goto(executive.linkedin_url, wait_until="networkidle")
+            time.sleep(2)
             
             # Look for the Connect button
-            connect_button = await self.page.query_selector("button:has-text('Connect')")
+            connect_button = self.page.query_selector("button:has-text('Connect')")
             
             if not connect_button:
                 # Try the "More" dropdown
-                more_button = await self.page.query_selector("button:has-text('More')")
+                more_button = self.page.query_selector("button:has-text('More')")
                 if more_button:
-                    await more_button.click()
-                    await asyncio.sleep(1)
-                    connect_button = await self.page.query_selector("div[role='menuitem']:has-text('Connect')")
+                    more_button.click()
+                    time.sleep(1)
+                    connect_button = self.page.query_selector("div[role='menuitem']:has-text('Connect')")
             
             if connect_button:
-                await connect_button.click()
-                await asyncio.sleep(1)
+                connect_button.click()
+                time.sleep(1)
                 
                 # Click "Add a note" button
-                add_note_button = await self.page.query_selector("button:has-text('Add a note')")
+                add_note_button = self.page.query_selector("button:has-text('Add a note')")
                 if add_note_button:
-                    await add_note_button.click()
-                    await asyncio.sleep(1)
+                    add_note_button.click()
+                    time.sleep(1)
                 
                 # Fill in the message
-                message_input = await self.page.query_selector("textarea[name='message']")
+                message_input = self.page.query_selector("textarea[name='message']")
                 if message_input:
-                    await message_input.fill(custom_message)
-                    await asyncio.sleep(1)
+                    message_input.fill(custom_message)
+                    time.sleep(1)
                 
                 # Click Send
-                send_button = await self.page.query_selector("button:has-text('Send')")
+                send_button = self.page.query_selector("button:has-text('Send')")
                 if send_button:
-                    await send_button.click()
-                    await asyncio.sleep(2)
+                    send_button.click()
+                    time.sleep(2)
                     
                     request.status = ConnectionStatus.sent
                     request.sent_at = datetime.now()
@@ -291,38 +336,20 @@ class LinkedInBot:
         self._notify_status()
         return request
     
-    async def log_to_crm(self, executive: Executive, message: str) -> bool:
-        """Log the connection to the CRM"""
-        self._update_status(f"Logging {executive.name} to CRM")
+    def _run_sync(self):
+        """Main bot execution loop (sync version that runs in a thread)"""
+        self._stop_event.clear()
         
         try:
-            result = await self.crm_client.create_lead_from_executive(
-                executive=executive,
-                stage_id=self.config.crm_stage_id,
-                custom_message=message
-            )
-            self._log(f"[OK] Lead created in CRM: {executive.name}")
-            self.status.leads_created += 1
-            self._notify_status()
-            return True
-        except Exception as e:
-            self._log(f"[ERR] Failed to create CRM lead: {str(e)}")
-            return False
-    
-    async def run(self):
-        """Main bot execution loop"""
-        self._stop_requested = False
-        
-        try:
-            await self.start_browser(headless=False)
+            self._start_browser(headless=False)
             
             # Check if logged in
-            if not await self.check_login():
+            if not self._check_login():
                 self._log("Please log in to LinkedIn in the browser window, then restart the bot.")
                 return
             
             # Search for jobs
-            jobs = await self.search_jobs()
+            jobs = self._search_jobs()
             
             if not jobs:
                 self._log("No jobs found matching criteria")
@@ -333,7 +360,7 @@ class LinkedInBot:
             connections_sent = 0
             
             for job in jobs:
-                if self._stop_requested:
+                if self._stop_event.is_set():
                     self._log("Bot stopped by user")
                     break
                 
@@ -349,47 +376,107 @@ class LinkedInBot:
                 processed_companies.add(company)
                 
                 # Find executives at this company
-                executives = await self.find_company_executives(company, job["title"])
+                executives = self._find_company_executives(company, job["title"])
                 
                 for executive in executives:
-                    if self._stop_requested:
+                    if self._stop_event.is_set():
                         break
                     
                     if connections_sent >= self.config.max_connections_per_session:
                         break
                     
                     # Send connection request
-                    request = await self.send_connection_request(executive)
+                    request = self._send_connection_request(executive)
                     
                     if request.status == ConnectionStatus.sent:
-                        # Log to CRM
-                        await self.log_to_crm(executive, request.custom_message)
+                        # Log to CRM (sync call via thread)
+                        self._log_to_crm_sync(executive, request.custom_message)
                         connections_sent += 1
                     
                     # Wait between connections
-                    if not self._stop_requested:
+                    if not self._stop_event.is_set():
                         delay = self.config.delay_between_connections
                         self._log(f"Waiting {delay} seconds before next connection...")
-                        await asyncio.sleep(delay)
+                        time.sleep(delay)
             
             self._log(f"Bot run completed. Sent {connections_sent} connections.")
             
         except Exception as e:
+            error_details = traceback.format_exc()
             self._log(f"[ERR] Bot error: {str(e)}")
-            raise
+            self._log(f"[ERR] Details: {error_details}")
+            print(f"Bot error: {error_details}")  # Also print to console
         finally:
             self.status.is_running = False
             self._update_status("Completed")
+            self._close_sync()
+    
+    def _log_to_crm_sync(self, executive: Executive, message: str) -> bool:
+        """Log the connection to the CRM (sync wrapper)"""
+        self._update_status(f"Logging {executive.name} to CRM")
+        
+        try:
+            # Use asyncio to run the async CRM call
+            import httpx
+            
+            payload = {
+                "name": executive.name,
+                "stageId": self.config.crm_stage_id,
+                "company": executive.company,
+                "priority": "medium",
+                "source": "LinkedIn Sales Robot",
+                "nextSteps": "Follow up on LinkedIn connection acceptance",
+                "notes": f"""LinkedIn Profile: {executive.linkedin_url}
+Title: {executive.title}
+Hiring for: {executive.company_job_title or 'N/A'}
+
+Connection Message Sent:
+{message}"""
+            }
+            
+            headers = {"Content-Type": "application/json"}
+            if self.crm_client.api_key:
+                headers["Authorization"] = f"Bearer {self.crm_client.api_key}"
+            
+            with httpx.Client() as client:
+                response = client.post(
+                    f"{self.crm_client.BASE_URL}/api/leads",
+                    json=payload,
+                    headers=headers,
+                    timeout=30.0
+                )
+                response.raise_for_status()
+            
+            self._log(f"[OK] Lead created in CRM: {executive.name}")
+            self.status.leads_created += 1
+            self._notify_status()
+            return True
+        except Exception as e:
+            self._log(f"[ERR] Failed to create CRM lead: {str(e)}")
+            return False
+    
+    def _close_sync(self):
+        """Close the browser (sync)"""
+        try:
+            if self.context:
+                self.context.close()
+            if self.playwright:
+                self.playwright.stop()
+        except Exception as e:
+            print(f"Error closing browser: {e}")
+    
+    async def run(self):
+        """Main entry point - runs the sync bot in a thread pool"""
+        self._loop = asyncio.get_running_loop()
+        await self._loop.run_in_executor(_executor, self._run_sync)
     
     async def stop(self):
         """Stop the bot gracefully"""
         self._log("Stopping bot...")
-        self._stop_requested = True
+        self._stop_event.set()
     
     async def close(self):
         """Close the browser"""
-        if self.context:
-            await self.context.close()
+        self._stop_event.set()
         self.status.is_running = False
         self._update_status("Browser closed")
-
