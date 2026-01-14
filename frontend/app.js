@@ -15,8 +15,39 @@ class LinkedInSalesRobot {
     init() {
         this.bindElements();
         this.bindEvents();
+        this.loadSavedSettings();
         this.connectWebSocket();
         this.updateCharCount();
+    }
+    
+    loadSavedSettings() {
+        // Load saved settings from localStorage
+        const savedStageId = localStorage.getItem('salesbot_stageId');
+        const savedApiKey = localStorage.getItem('salesbot_apiKey');
+        const savedJobTitles = localStorage.getItem('salesbot_jobTitles');
+        const savedMessageTemplate = localStorage.getItem('salesbot_messageTemplate');
+        const savedMaxConnections = localStorage.getItem('salesbot_maxConnections');
+        const savedDelay = localStorage.getItem('salesbot_delay');
+        const savedPostedWithin = localStorage.getItem('salesbot_postedWithin');
+        
+        if (savedStageId) this.crmStageIdInput.value = savedStageId;
+        if (savedApiKey) this.crmApiKeyInput.value = savedApiKey;
+        if (savedJobTitles) this.jobTitlesInput.value = savedJobTitles;
+        if (savedMessageTemplate) this.messageTemplateInput.value = savedMessageTemplate;
+        if (savedMaxConnections) this.maxConnectionsInput.value = savedMaxConnections;
+        if (savedDelay) this.delaySecondsInput.value = savedDelay;
+        if (savedPostedWithin) this.postedWithinSelect.value = savedPostedWithin;
+    }
+    
+    saveSettings() {
+        // Save current settings to localStorage
+        localStorage.setItem('salesbot_stageId', this.crmStageIdInput.value);
+        localStorage.setItem('salesbot_apiKey', this.crmApiKeyInput.value);
+        localStorage.setItem('salesbot_jobTitles', this.jobTitlesInput.value);
+        localStorage.setItem('salesbot_messageTemplate', this.messageTemplateInput.value);
+        localStorage.setItem('salesbot_maxConnections', this.maxConnectionsInput.value);
+        localStorage.setItem('salesbot_delay', this.delaySecondsInput.value);
+        localStorage.setItem('salesbot_postedWithin', this.postedWithinSelect.value);
     }
     
     bindElements() {
@@ -267,6 +298,9 @@ class LinkedInSalesRobot {
         if (!this.validateForm()) {
             return;
         }
+        
+        // Save settings for next session
+        this.saveSettings();
         
         const jobTitles = this.jobTitlesInput.value
             .split('\n')
