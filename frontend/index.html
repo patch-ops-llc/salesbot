@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Sales Robot</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Animated background -->
+        <div class="bg-grid"></div>
+        <div class="bg-glow bg-glow-1"></div>
+        <div class="bg-glow bg-glow-2"></div>
+        
+        <!-- Header -->
+        <header class="header">
+            <div class="logo">
+                <div class="logo-icon">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 2L2 7l10 5 10-5-10-5z"/>
+                        <path d="M2 17l10 5 10-5"/>
+                        <path d="M2 12l10 5 10-5"/>
+                    </svg>
+                </div>
+                <span class="logo-text">LinkedIn Sales Robot</span>
+            </div>
+            <div class="status-badge" id="statusBadge">
+                <span class="status-dot"></span>
+                <span class="status-text">Idle</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main">
+            <!-- Control Panel -->
+            <section class="panel control-panel">
+                <div class="panel-header">
+                    <h2>Configuration</h2>
+                    <span class="panel-icon">⚙️</span>
+                </div>
+                
+                <div class="panel-body">
+                    <!-- Search Configuration -->
+                    <div class="form-section">
+                        <h3>Job Search Criteria</h3>
+                        
+                        <div class="form-group">
+                            <label for="jobTitles">Target Job Titles</label>
+                            <textarea id="jobTitles" placeholder="Enter job titles to search for (one per line)&#10;&#10;Example:&#10;Software Engineer&#10;Frontend Developer&#10;Full Stack Developer"></textarea>
+                            <span class="form-hint">These are the jobs you want to find companies hiring for</span>
+                        </div>
+                        
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="postedWithin">Posted Within</label>
+                                <select id="postedWithin">
+                                    <option value="1">24 hours</option>
+                                    <option value="7" selected>Past week</option>
+                                    <option value="30">Past month</option>
+                                </select>
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="maxConnections">Max Connections</label>
+                                <input type="number" id="maxConnections" value="20" min="1" max="50">
+                            </div>
+                            
+                            <div class="form-group">
+                                <label for="delaySeconds">Delay (seconds)</label>
+                                <input type="number" id="delaySeconds" value="30" min="10" max="120">
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <!-- Message Template -->
+                    <div class="form-section">
+                        <h3>Connection Message Template</h3>
+                        
+                        <div class="form-group">
+                            <label for="messageTemplate">Message Template</label>
+                            <textarea id="messageTemplate" class="message-template" placeholder="Write your connection message template...&#10;&#10;Available placeholders:&#10;{name} - First name of the executive&#10;{company} - Company name&#10;{title} - Executive's title&#10;{job_title} - The job they're hiring for">Hi {name},
+
+I noticed {company} is hiring for {job_title}. I help companies build exceptional teams and would love to connect.
+
+Looking forward to sharing ideas!</textarea>
+                            <div class="char-count"><span id="charCount">0</span>/300 characters</div>
+                        </div>
+                        
+                        <div class="placeholder-pills">
+                            <span class="pill" data-placeholder="{name}">👤 {name}</span>
+                            <span class="pill" data-placeholder="{company}">🏢 {company}</span>
+                            <span class="pill" data-placeholder="{title}">💼 {title}</span>
+                            <span class="pill" data-placeholder="{job_title}">📋 {job_title}</span>
+                        </div>
+                    </div>
+                    
+                    <!-- CRM Configuration -->
+                    <div class="form-section">
+                        <h3>CRM Integration</h3>
+                        
+                        <div class="form-row">
+                            <div class="form-group flex-2">
+                                <label for="crmStageId">Pipeline Stage ID</label>
+                                <input type="text" id="crmStageId" placeholder="Enter your CRM stage UUID">
+                            </div>
+                            
+                            <div class="form-group flex-2">
+                                <label for="crmApiKey">API Key (optional)</label>
+                                <input type="password" id="crmApiKey" placeholder="Bearer token if required">
+                            </div>
+                        </div>
+                        <span class="form-hint">Leads will be posted to work.patchops.io/api/leads</span>
+                    </div>
+                    
+                    <!-- Action Buttons -->
+                    <div class="action-buttons">
+                        <button id="startBtn" class="btn btn-primary">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polygon points="5 3 19 12 5 21 5 3"/>
+                            </svg>
+                            Start Robot
+                        </button>
+                        <button id="stopBtn" class="btn btn-danger" disabled>
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <rect x="6" y="6" width="12" height="12"/>
+                            </svg>
+                            Stop
+                        </button>
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Stats Panel -->
+            <section class="panel stats-panel">
+                <div class="panel-header">
+                    <h2>Live Statistics</h2>
+                    <span class="panel-icon">📊</span>
+                </div>
+                
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="connectionsSent">0</div>
+                        <div class="stat-label">Connections Sent</div>
+                        <div class="stat-icon sent">✉️</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="connectionsFailed">0</div>
+                        <div class="stat-label">Failed</div>
+                        <div class="stat-icon failed">❌</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="leadsCreated">0</div>
+                        <div class="stat-label">Leads Created</div>
+                        <div class="stat-icon leads">🎯</div>
+                    </div>
+                </div>
+                
+                <!-- Current Activity -->
+                <div class="current-activity">
+                    <div class="activity-header">
+                        <span class="activity-indicator" id="activityIndicator"></span>
+                        <span id="currentAction">Waiting to start...</span>
+                    </div>
+                    <div class="current-executive" id="currentExecutive">
+                        <!-- Populated by JS -->
+                    </div>
+                </div>
+            </section>
+            
+            <!-- Log Panel -->
+            <section class="panel log-panel">
+                <div class="panel-header">
+                    <h2>Activity Log</h2>
+                    <button class="btn-icon" id="clearLogBtn" title="Clear log">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/>
+                        </svg>
+                    </button>
+                </div>
+                
+                <div class="log-container" id="logContainer">
+                    <div class="log-entry info">
+                        <span class="log-time">--:--:--</span>
+                        <span class="log-message">Ready to start. Configure settings and click "Start Robot".</span>
+                    </div>
+                </div>
+            </section>
+        </main>
+        
+        <!-- Footer -->
+        <footer class="footer">
+            <span>LinkedIn Sales Robot v1.0</span>
+            <span class="separator">•</span>
+            <span>CRM: work.patchops.io</span>
+        </footer>
+    </div>
+    
+    <script src="/static/app.js"></script>
+</body>
+</html>
+
