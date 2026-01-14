@@ -92,10 +92,10 @@ class LinkedInBot:
         # Check if we're on the login page or feed
         current_url = self.page.url
         if "login" in current_url or "checkpoint" in current_url:
-            self._log("⚠️ Not logged in to LinkedIn. Please log in manually.")
+            self._log("[!] Not logged in to LinkedIn. Please log in manually.")
             return False
         
-        self._log("✅ LinkedIn login confirmed")
+        self._log("[OK] LinkedIn login confirmed")
         return True
     
     async def search_jobs(self) -> List[dict]:
@@ -271,13 +271,13 @@ class LinkedInBot:
                     
                     request.status = ConnectionStatus.sent
                     request.sent_at = datetime.now()
-                    self._log(f"✅ Connection sent to {executive.name}")
+                    self._log(f"[OK] Connection sent to {executive.name}")
                     self.status.connections_sent += 1
                 else:
                     raise Exception("Could not find Send button")
             else:
                 # Might already be connected or pending
-                self._log(f"⚠️ Connect button not found for {executive.name} - may already be connected")
+                self._log(f"[!] Connect button not found for {executive.name} - may already be connected")
                 request.status = ConnectionStatus.failed
                 request.error_message = "Connect button not found"
                 self.status.connections_failed += 1
@@ -285,7 +285,7 @@ class LinkedInBot:
         except Exception as e:
             request.status = ConnectionStatus.failed
             request.error_message = str(e)
-            self._log(f"❌ Failed to connect with {executive.name}: {str(e)}")
+            self._log(f"[ERR] Failed to connect with {executive.name}: {str(e)}")
             self.status.connections_failed += 1
         
         self._notify_status()
@@ -301,12 +301,12 @@ class LinkedInBot:
                 stage_id=self.config.crm_stage_id,
                 custom_message=message
             )
-            self._log(f"✅ Lead created in CRM: {executive.name}")
+            self._log(f"[OK] Lead created in CRM: {executive.name}")
             self.status.leads_created += 1
             self._notify_status()
             return True
         except Exception as e:
-            self._log(f"❌ Failed to create CRM lead: {str(e)}")
+            self._log(f"[ERR] Failed to create CRM lead: {str(e)}")
             return False
     
     async def run(self):
@@ -375,7 +375,7 @@ class LinkedInBot:
             self._log(f"Bot run completed. Sent {connections_sent} connections.")
             
         except Exception as e:
-            self._log(f"❌ Bot error: {str(e)}")
+            self._log(f"[ERR] Bot error: {str(e)}")
             raise
         finally:
             self.status.is_running = False

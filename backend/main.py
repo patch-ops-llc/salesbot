@@ -28,12 +28,12 @@ state = AppState()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Startup and shutdown events"""
-    print("🚀 LinkedIn Sales Robot starting...")
+    print("[*] LinkedIn Sales Robot starting...")
     yield
     # Cleanup
     if state.bot:
         await state.bot.close()
-    print("👋 LinkedIn Sales Robot shutting down...")
+    print("[*] LinkedIn Sales Robot shutting down...")
 
 
 app = FastAPI(
