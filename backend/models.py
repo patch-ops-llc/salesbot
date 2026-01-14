@@ -21,6 +21,7 @@ class ConnectionStatus(str, Enum):
 class SearchConfig(BaseModel):
     """Configuration for LinkedIn job search"""
     job_titles: List[str] = Field(default_factory=list, description="Job titles to search for")
+    description_keywords: List[str] = Field(default_factory=list, description="Keywords to search for in job descriptions")
     locations: List[str] = Field(default_factory=list, description="Locations to filter by")
     company_sizes: List[str] = Field(default_factory=list, description="Company size filters")
     posted_within_days: int = Field(default=7, description="Jobs posted within X days")

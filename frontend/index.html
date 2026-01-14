@@ -7,7 +7,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="/static/style.css?v=2">
+    <link rel="stylesheet" href="/static/style.css?v=3">
 </head>
 <body>
     <div class="app">
@@ -52,6 +52,12 @@
                             <label for="jobTitles">Target Job Titles</label>
                             <textarea id="jobTitles" placeholder="Enter job titles to search for (one per line)&#10;&#10;Example:&#10;Software Engineer&#10;Frontend Developer&#10;Full Stack Developer"></textarea>
                             <span class="form-hint">These are the jobs you want to find companies hiring for</span>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label for="descriptionKeywords">Description Keywords (optional)</label>
+                            <textarea id="descriptionKeywords" placeholder="Keywords to search for in job descriptions (one per line)&#10;&#10;Example:&#10;HubSpot&#10;Salesforce&#10;RevOps"></textarea>
+                            <span class="form-hint">Only target jobs where the description contains these keywords</span>
                         </div>
                         
                         <div class="form-row">
@@ -199,7 +205,7 @@ Looking forward to sharing ideas!</textarea>
         </footer>
     </div>
     
-    <script src="/static/app.js?v=2"></script>
+    <script src="/static/app.js?v=3"></script>
 </body>
 </html>
 

@@ -118,6 +118,7 @@ async def websocket_endpoint(websocket: WebSocket):
 class StartBotRequest(BaseModel):
     """Request to start the bot"""
     job_titles: list[str]
+    description_keywords: list[str] = []
     locations: list[str] = []
     posted_within_days: int = 7
     message_template: str
@@ -140,6 +141,7 @@ async def start_bot(request: StartBotRequest):
     config = BotConfig(
         search_config=SearchConfig(
             job_titles=request.job_titles,
+            description_keywords=request.description_keywords,
             locations=request.locations,
             posted_within_days=request.posted_within_days
         ),

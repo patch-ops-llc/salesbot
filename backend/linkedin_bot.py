@@ -146,6 +146,7 @@ class LinkedInBot:
         jobs = []
         
         search_config = self.config.search_config
+        description_keywords = [kw.lower() for kw in search_config.description_keywords]
         
         for job_title in search_config.job_titles:
             if self._stop_event.is_set():
@@ -183,18 +184,63 @@ class LinkedInBot:
                         company = company_elem.inner_text()
                         link = link_elem.get_attribute("href")
                         
-                        jobs.append({
-                            "title": title.strip(),
-                            "company": company.strip(),
-                            "link": link,
-                            "search_term": job_title
-                        })
+                        # If description keywords are specified, check the job description
+                        if description_keywords:
+                            # Click on the job card to load the description
+                            try:
+                                card.click()
+                                time.sleep(2)
+                                
+                                # Extract job description from the details pane
+                                description_elem = self.page.query_selector(".jobs-description__content")
+                                if description_elem:
+                                    description_text = description_elem.inner_text().lower()
+                                    
+                                    # Check if any keyword is in the description
+                                    keyword_found = any(kw in description_text for kw in description_keywords)
+                                    
+                                    if keyword_found:
+                                        matched_keywords = [kw for kw in description_keywords if kw in description_text]
+                                        self._log(f"[OK] '{title}' at {company} - matches: {', '.join(matched_keywords)}")
+                                        jobs.append({
+                                            "title": title.strip(),
+                                            "company": company.strip(),
+                                            "link": link,
+                                            "search_term": job_title
+                                        })
+                                    else:
+                                        self._log(f"[--] '{title}' at {company} - no keyword match, skipping")
+                                else:
+                                    # Couldn't load description, include the job anyway
+                                    self._log(f"[?] Couldn't load description for '{title}', including anyway")
+                                    jobs.append({
+                                        "title": title.strip(),
+                                        "company": company.strip(),
+                                        "link": link,
+                                        "search_term": job_title
+                                    })
+                            except Exception as e:
+                                self._log(f"[?] Error checking description: {str(e)}, including job anyway")
+                                jobs.append({
+                                    "title": title.strip(),
+                                    "company": company.strip(),
+                                    "link": link,
+                                    "search_term": job_title
+                                })
+                        else:
+                            # No description keywords, include all jobs
+                            jobs.append({
+                                "title": title.strip(),
+                                "company": company.strip(),
+                                "link": link,
+                                "search_term": job_title
+                            })
                 except Exception as e:
                     self._log(f"Error extracting job: {str(e)}")
             
             time.sleep(2)  # Rate limiting
         
-        self._log(f"Found {len(jobs)} job postings")
+        self._log(f"Found {len(jobs)} matching job postings")
         return jobs
     
     def _find_company_executives(self, company_name: str, job_title: str) -> List[Executive]:

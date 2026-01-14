@@ -25,6 +25,7 @@ class LinkedInSalesRobot {
         const savedStageId = localStorage.getItem('salesbot_stageId');
         const savedApiKey = localStorage.getItem('salesbot_apiKey');
         const savedJobTitles = localStorage.getItem('salesbot_jobTitles');
+        const savedDescriptionKeywords = localStorage.getItem('salesbot_descriptionKeywords');
         const savedMessageTemplate = localStorage.getItem('salesbot_messageTemplate');
         const savedMaxConnections = localStorage.getItem('salesbot_maxConnections');
         const savedDelay = localStorage.getItem('salesbot_delay');
@@ -33,6 +34,7 @@ class LinkedInSalesRobot {
         if (savedStageId) this.crmStageIdInput.value = savedStageId;
         if (savedApiKey) this.crmApiKeyInput.value = savedApiKey;
         if (savedJobTitles) this.jobTitlesInput.value = savedJobTitles;
+        if (savedDescriptionKeywords) this.descriptionKeywordsInput.value = savedDescriptionKeywords;
         if (savedMessageTemplate) this.messageTemplateInput.value = savedMessageTemplate;
         if (savedMaxConnections) this.maxConnectionsInput.value = savedMaxConnections;
         if (savedDelay) this.delaySecondsInput.value = savedDelay;
@@ -44,6 +46,7 @@ class LinkedInSalesRobot {
         localStorage.setItem('salesbot_stageId', this.crmStageIdInput.value);
         localStorage.setItem('salesbot_apiKey', this.crmApiKeyInput.value);
         localStorage.setItem('salesbot_jobTitles', this.jobTitlesInput.value);
+        localStorage.setItem('salesbot_descriptionKeywords', this.descriptionKeywordsInput.value);
         localStorage.setItem('salesbot_messageTemplate', this.messageTemplateInput.value);
         localStorage.setItem('salesbot_maxConnections', this.maxConnectionsInput.value);
         localStorage.setItem('salesbot_delay', this.delaySecondsInput.value);
@@ -53,6 +56,7 @@ class LinkedInSalesRobot {
     bindElements() {
         // Form elements
         this.jobTitlesInput = document.getElementById('jobTitles');
+        this.descriptionKeywordsInput = document.getElementById('descriptionKeywords');
         this.postedWithinSelect = document.getElementById('postedWithin');
         this.maxConnectionsInput = document.getElementById('maxConnections');
         this.delaySecondsInput = document.getElementById('delaySeconds');
@@ -307,8 +311,14 @@ class LinkedInSalesRobot {
             .map(t => t.trim())
             .filter(t => t.length > 0);
         
+        const descriptionKeywords = this.descriptionKeywordsInput.value
+            .split('\n')
+            .map(k => k.trim())
+            .filter(k => k.length > 0);
+        
         const payload = {
             job_titles: jobTitles,
+            description_keywords: descriptionKeywords,
             posted_within_days: parseInt(this.postedWithinSelect.value),
             message_template: this.messageTemplateInput.value,
             crm_stage_id: this.crmStageIdInput.value.trim(),
